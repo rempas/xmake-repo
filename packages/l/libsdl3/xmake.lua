@@ -1,4 +1,5 @@
 package("libsdl3")
+
     set_homepage("https://www.libsdl.org/")
     set_description("Simple DirectMedia Layer")
     set_license("zlib")
@@ -15,6 +16,7 @@ package("libsdl3")
              "https://github.com/libsdl-org/SDL/releases/download/release-$(version)/SDL3-$(version).zip", { alias = "archive" })
     add_urls("https://github.com/libsdl-org/SDL.git", { alias = "github" })
 
+    add_versions("archive:3.4.14", "b07ef7b5431cea0cb2ea9613e2d8410f9ef37f5627f82f1733086cb00aa2b4b4")
     add_versions("archive:3.4.12", "3d4de8967a49c0451e775a0c1e9022092c19fdef41ba38a83fcf031c5a6496e2")
     add_versions("archive:3.4.4", "6bd4fbb665f77899a488b381c5b6e9681fc57c60b669738f985fea714f3456c5")
     add_versions("archive:3.4.2", "4954d436c95c42aa258d4eb3fb95f8ecc5d7a3dc411f0f41ac2692d34b9b9e9c")
@@ -30,6 +32,7 @@ package("libsdl3")
     add_versions("archive:3.2.2", "58d8adc7068d38923f918e0bdaa9c4948f93d9ba204fe4de8cc6eaaf77ad6f82")
     add_versions("archive:3.2.0", "abe7114fa42edcc8097856787fa5d37f256d97e365b71368b60764fe7c10e4f8")
 
+    add_versions("github:3.4.14", "release-3.4.14")
     add_versions("github:3.4.12", "release-3.4.12")
     add_versions("github:3.4.4", "release-3.4.4")
     add_versions("github:3.4.2", "release-3.4.2")
@@ -47,7 +50,24 @@ package("libsdl3")
 
     add_patches("3.4.0", "patches/3.4.0/fix-ios.patch", "feffa146aa825f97fc431f115f3990a7a0ad0214d05a9765f2cfbd3633465bf8")
 
-    add_deps("cmake", "egl-headers", "opengl-headers")
+    add_deps("cmake")
+
+    add_configs("video", { description = "Enable support for video (creating windows)", default = true, type = "boolean"})
+    add_configs("audio", { description = "Enable support for SDL_Audio", default = true, type = "boolean"})
+    add_configs("gpu", { description = "Enable support for SDL_GPU", default = true, type = "boolean"})
+    add_configs("renderer", { description = "Enable support for SDL_Renderer", default = true, type = "boolean"})
+    add_configs("joystick", { description = "Enable support for SDL_joystick", default = true, type = "boolean"})
+    add_configs("haptic", { description = "Enable haptic input support", default = true, type = "boolean"})
+    add_configs("camera", { description = "Enable support for SDL_Camera", default = true, type = "boolean"})
+    add_configs("storage", { description = "Enable support for SDL_Storage", default = true, type = "boolean"})
+    add_configs("process", { description = "Enable support for SDL's cross-platform process spawning", default = true, type = "boolean"})
+    add_configs("dialog", { description = "Enable support for SDL's native file/directory picker and dialog", default = true, type = "boolean"})
+    add_configs("tray", { description = "Enable support for SDL's tray system API", default = true, type = "boolean"})
+    add_configs("filesystem", { description = "Enable support for SDL's standard file path handling", default = true, type = "boolean"})
+    add_configs("threads", { description = "Enable support for SDL's threading and mutex wrappers", default = true, type = "boolean"})
+    add_configs("timers", { description = "Enable support for SDL's timers and delay functions", default = true, type = "boolean"})
+    add_configs("loadso", { description = "Enable support for loading shared libraries through SDL's runtime", default = true, type = "boolean"})
+    add_configs("locale", { description = "Enable SDL's system locale's detection", default = true, type = "boolean"})
 
     if is_plat("linux", "bsd", "cross") then
         add_configs("x11", {description = "Enables X11 support", default = true, type = "boolean"})
@@ -61,9 +81,21 @@ package("libsdl3")
     end
 
     on_load(function (package)
+        local supports_video = package:config("video")
+
+        if supports_video and not package:is_plat("wasm") then
+            package:add("deps", "egl-headers")
+            package:add("deps", "opengl-headers")
+        else
+            package:config_set("gpu", false)
+            package:config_set("renderer", false)
+            package:config_set("dialog", false)
+            package:config_set("tray", false)
+        end
+
         if package:is_plat("linux", "android", "cross") then
             -- Enable Wayland by default except when cross-compiling (wayland package doesn't support cross-compilation yet)
-            if package:config("wayland") == nil and not package:is_cross() then
+            if package:config("wayland") == nil and not package:is_cross() and supports_video then
                 package:config_set("wayland", true)
             end
         end
@@ -71,14 +103,14 @@ package("libsdl3")
             package:add("deps", "ninja")
             package:set("policy", "package.cmake_generator.ninja", true)
         end
-        if package:is_plat("linux", "bsd", "cross") and package:config("x11") then
-            local deplibs = {"libx11", "libxcb", "libxext", "libxcursor", "libxfixes", "libxi", "libxrandr", "libxrender", "libxss"}
+        if package:is_plat("linux", "bsd", "cross") and package:config("x11") and supports_video then
+            local deplibs = {"libx11", "libxcb", "libxext", "libxcursor", "libxfixes", "libxi", "libxrandr", "libxrender", "libxss", "xorgproto"}
             local depconfig = package:config("x11_shared") and {private = true, configs = {shared = true}} or nil
             for _, lib in ipairs(deplibs) do
                 package:add("deps", lib, depconfig)
             end
         end
-        if package:is_plat("linux", "bsd", "cross") and package:config("wayland") then
+        if package:is_plat("linux", "bsd", "cross") and package:config("wayland") and supports_video then
             if package:config("wayland_shared") then
                 package:add("deps", "wayland", {private = true, configs = {shared = true}})
             else
@@ -98,13 +130,13 @@ package("libsdl3")
                 package:add("syslinks", "dl", "log", "android", "GLESv1_CM", "GLESv2", "OpenSLES")
             elseif package:is_plat("iphoneos", "macosx") then
                 package:add("frameworks", "AudioToolbox", "AVFoundation", "CoreAudio", "CoreHaptics", "CoreMedia", "CoreVideo", "Foundation", "GameController", "Metal", "QuartzCore", "CoreFoundation", "UniformTypeIdentifiers")
-		        package:add("syslinks", "iconv")
+                package:add("syslinks", "iconv")
                 if package:is_plat("macosx") then
                     package:add("frameworks", "Cocoa", "Carbon", "ForceFeedback", "IOKit")
                 else
                     package:add("frameworks", "CoreBluetooth", "CoreGraphics", "CoreMotion", "OpenGLES", "UIKit")
                 end
-		    end
+            end
         end
     end)
 
@@ -114,6 +146,18 @@ package("libsdl3")
         table.insert(configs, "-DBUILD_SHARED_LIBS=" .. (package:config("shared") and "ON" or "OFF"))
         table.insert(configs, "-DSDL_TEST_LIBRARY=OFF")
         table.insert(configs, "-DSDL_EXAMPLES=OFF")
+
+        local toggle_configs = {
+            video = "VIDEO", audio = "AUDIO", gpu = "GPU", renderer = "RENDER",
+            joystick = "JOYSTICK", haptic = "HAPTIC", camera = "CAMERA",
+            storage = "STORAGE", process = "PROCESS", dialog = "DIALOG",
+            tray = "TRAY", filesystem = "FILESYSTEM", threads = "THREADS",
+            timers = "TIMERS", loadso = "LOADSO", locale = "LOCALE"
+        }
+        for conf_name, cmake_suffix in pairs(toggle_configs) do
+            table.insert(configs, "-DSDL_" .. cmake_suffix .. "=" .. (package:config(conf_name) and "ON" or "OFF"))
+        end
+
         if package:is_plat("linux", "bsd", "cross") then
             table.insert(configs, "-DSDL_X11=" .. (package:config("x11") and "ON" or "OFF"))
             table.insert(configs, "-DSDL_X11_SHARED=" .. (package:config("x11_shared") and "ON" or "OFF"))
@@ -123,14 +167,26 @@ package("libsdl3")
         end
 
         local cflags
-        local packagedeps
-        if not package:is_plat("wasm") then
-            packagedeps = table.join2(packagedeps or {}, {"egl-headers", "opengl-headers"})
+        local packagedeps = {}
+
+        -- Only fetch include directories for video dependencies if video support is enabled!
+        if package:config("video") then
+            if not package:is_plat("wasm") then
+                table.insert(packagedeps, "egl-headers")
+                table.insert(packagedeps, "opengl-headers")
+            end
+
+            if package:is_plat("linux", "bsd", "cross") then
+                if package:config("x11") then
+                    packagedeps = table.join2(packagedeps, {"libxcursor", "libxext", "libxfixes", "libxcb", "libx11", "libxi", "libxrandr", "libxrender", "libxss", "xorgproto"})
+                end
+                if package:config("wayland") then
+                    table.insert(packagedeps, "wayland")
+                end
+            end
         end
 
-        if package:is_plat("linux", "bsd", "cross") then
-            packagedeps = table.join2(packagedeps or {}, {"libxcursor", "libxext", "libxfixes", "libxcb", "libx11", "libxi", "libxrandr", "libxrender", "libxss", "xorgproto", "wayland"})
-        elseif package:is_plat("wasm") then
+        if package:is_plat("wasm") then
             -- emscripten enables USE_SDL by default which will conflict with libsdl headers
             cflags = {"-sUSE_SDL=0"}
         end
